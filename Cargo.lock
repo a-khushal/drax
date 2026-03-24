@@ -149,6 +149,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "drax"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "sha2",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -175,15 +184,6 @@ name = "libc"
 version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
-
-[[package]]
-name = "messy-drax"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "sha2",
-]
 
 [[package]]
 name = "once_cell_polyfill"

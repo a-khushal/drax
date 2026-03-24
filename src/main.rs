@@ -1,10 +1,12 @@
 use std::{
-    fs::{self, OpenOptions}, io::Bytes, path::PathBuf
+    collections::BTreeMap,
+    fs::{self, OpenOptions},
+    path::PathBuf,
 };
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand, builder::Str};
-use sha2::{Sha256, Digest};
+use clap::{Parser, Subcommand};
+use sha2::{Digest, Sha256};
 
 const DRAX_DIR: &str = ".drax";
 const OBJECTS_DIR: &str = ".drax/objects";
@@ -21,12 +23,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Init,
+    Add { file: String },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Init => init_repo()?,
+        Commands::Add { file } => add_file(&file)?,
     }
 
     Ok(())
@@ -61,7 +65,12 @@ fn ensure_repo_not_initialized() -> Result<()> {
 }
 
 fn ensure_repo_exists() -> Result<()> {
-    if !drax_dir().is_dir() || !objects_dir().is_dir() {
+    if !drax_dir().is_dir()
+        || !objects_dir().is_dir()
+        || !refs_dir().is_dir()
+        || !head_file().is_file()
+        || !index_file().is_file()
+    {
         bail!("drax repository not initialized. run `drax init` first");
     }
     Ok(())
@@ -85,14 +94,22 @@ fn object_path(hash: &str) -> Result<PathBuf> {
 
 fn write_object(bytes: &[u8]) -> Result<String> {
     ensure_repo_exists()?;
-    
+
     let hash = hash_bytes(bytes);
     let path = object_path(&hash)?;
-    
+
     if path.exists() {
         return Ok(hash);
     }
 
+    /*
+       static string -> context
+       dynamic/path-rich message -> with_context
+
+       so, these both are valid,
+       fs::create_dir_all(parent).context("failed to create object subdirectory")?;
+       fs::create_dir_all(parent).with_context(|| format!("failed to create object subdirectory: {}", parent.display()))?;
+    */
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("failed to create object subdirectory")?;
     }
@@ -138,5 +155,62 @@ fn init_repo() -> Result<()> {
         "Initialized empty drax repository in {}",
         drax_dir.display()
     );
+    Ok(())
+}
+
+fn load_index() -> Result<BTreeMap<String, String>> {
+    ensure_repo_exists()?;
+    let index_path = index_file();
+
+    if !index_path.exists() {
+        return Ok(BTreeMap::new());
+    }
+
+    let content = fs::read_to_string(&index_path).context("failed to read index")?;
+    let mut entries = BTreeMap::new();
+
+    for (i, line) in content.lines().enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        let (file, hash) = line
+            .split_once("\t")
+            .with_context(|| format!("invalid index line {}", i + 1))?;
+        entries.insert(file.to_string(), hash.to_string());
+    }
+
+    Ok(entries)
+}
+
+fn save_index(entries: &BTreeMap<String, String>) -> Result<()> {
+    ensure_repo_exists()?;
+    let mut out = String::new();
+
+    for (file, hash) in entries {
+        out.push_str(file);
+        out.push('\t');
+        out.push_str(hash);
+        out.push('\n');
+    }
+
+    fs::write(index_file(), out).context("failed to write index")?;
+    Ok(())
+}
+
+fn add_file(file: &str) -> Result<()> {
+    ensure_repo_exists()?;
+
+    if !PathBuf::from(file).is_file() {
+        bail!("not a file: {file}");
+    }
+
+    let bytes = fs::read(file).with_context(|| format!("failed to read file: {file}"))?;
+    let hash = write_object(&bytes)?;
+
+    let mut idx = load_index()?;
+    idx.insert(file.replace("\\", "/"), hash.clone());
+    save_index(&idx)?;
+
+    println!("added {} {}", file, &hash[..12]);
     Ok(())
 }

@@ -1,10 +1,10 @@
 use std::{
-    fs::{self, OpenOptions},
-    path::PathBuf,
+    fs::{self, OpenOptions}, io::Bytes, path::PathBuf
 };
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, builder::Str};
+use sha2::{Sha256, Digest};
 
 const DRAX_DIR: &str = ".drax";
 const OBJECTS_DIR: &str = ".drax/objects";
@@ -58,6 +58,55 @@ fn ensure_repo_not_initialized() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn ensure_repo_exists() -> Result<()> {
+    if !drax_dir().is_dir() || !objects_dir().is_dir() {
+        bail!("drax repository not initialized. run `drax init` first");
+    }
+    Ok(())
+}
+
+fn hash_bytes(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let digest = hasher.finalize();
+    format!("{:x}", digest)
+}
+
+fn object_path(hash: &str) -> Result<PathBuf> {
+    if hash.len() < 3 {
+        bail!("invalid hash: {hash}");
+    }
+
+    let (prefix, rest) = hash.split_at(2);
+    Ok(objects_dir().join(prefix).join(rest))
+}
+
+fn write_object(bytes: &[u8]) -> Result<String> {
+    ensure_repo_exists()?;
+    
+    let hash = hash_bytes(bytes);
+    let path = object_path(&hash)?;
+    
+    if path.exists() {
+        return Ok(hash);
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).context("failed to create object subdirectory")?;
+    }
+
+    fs::write(&path, bytes).with_context(|| format!("failed to write object {hash}"))?;
+    Ok(hash)
+}
+
+fn read_object(hash: &str) -> Result<Vec<u8>> {
+    ensure_repo_exists()?;
+
+    let path = object_path(hash)?;
+    let data = fs::read(&path).with_context(|| format!("object not found: {hash}"))?;
+    Ok(data)
 }
 
 fn init_repo() -> Result<()> {

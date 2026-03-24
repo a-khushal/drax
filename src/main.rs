@@ -6,6 +6,12 @@ use std::{
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
+const DRAX_DIR: &str = ".drax";
+const OBJECTS_DIR: &str = ".drax/objects";
+const REFS_DIR: &str = ".drax/refs";
+const HEAD_FILE: &str = ".drax/HEAD";
+const INDEX_FILE: &str = ".drax/index";
+
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -26,16 +32,42 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn init_repo() -> Result<()> {
-    let drax_dir = PathBuf::from(".drax");
-    let objects_dir = drax_dir.join("objects");
-    let refs_dir = drax_dir.join("refs");
-    let head_file = drax_dir.join("HEAD");
-    let index_file = drax_dir.join("index");
+fn drax_dir() -> PathBuf {
+    PathBuf::from(DRAX_DIR)
+}
 
-    if drax_dir.exists() {
-        bail!("repository already initialized at .drax");
+fn objects_dir() -> PathBuf {
+    PathBuf::from(OBJECTS_DIR)
+}
+
+fn refs_dir() -> PathBuf {
+    PathBuf::from(REFS_DIR)
+}
+
+fn head_file() -> PathBuf {
+    PathBuf::from(HEAD_FILE)
+}
+
+fn index_file() -> PathBuf {
+    PathBuf::from(INDEX_FILE)
+}
+
+fn ensure_repo_not_initialized() -> Result<()> {
+    if drax_dir().exists() {
+        bail!("repository already initialized at {DRAX_DIR}");
     }
+
+    Ok(())
+}
+
+fn init_repo() -> Result<()> {
+    ensure_repo_not_initialized()?;
+
+    let drax_dir = drax_dir();
+    let objects_dir = objects_dir();
+    let refs_dir = refs_dir();
+    let head_file = head_file();
+    let index_file = index_file();
 
     fs::create_dir(&drax_dir).context("failed to create .drax")?;
     fs::create_dir_all(&objects_dir).context("failed to create objects directory")?;

@@ -24,6 +24,7 @@ struct Cli {
 enum Commands {
     Init,
     Add { file: String },
+    Commit { msg: String },
 }
 
 fn main() -> Result<()> {
@@ -31,6 +32,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Init => init_repo()?,
         Commands::Add { file } => add_file(&file)?,
+        Commands::Commit { msg } => commit(&msg)?,
     }
 
     Ok(())
@@ -212,5 +214,64 @@ fn add_file(file: &str) -> Result<()> {
     save_index(&idx)?;
 
     println!("added {} {}", file, &hash[..12]);
+    Ok(())
+}
+
+fn build_tree(entries: &BTreeMap<String, String>) -> Result<String> {
+    let mut lines = Vec::new();
+    for (path, hash) in entries {
+        lines.push(format!("{}\t{}\tblob", path, hash));
+    }
+    lines.sort();
+    let content = lines.join("\n");
+    write_object(content.as_bytes())
+}
+
+fn read_head() -> Result<Option<String>> {
+    let path = head_file();
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path)?;
+    let hash = content.trim();
+    if hash.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(hash.to_string()))
+    }
+}
+
+fn write_head(hash: &str) -> Result<()> {
+    fs::write(head_file(), hash).context("failed to write HEAD")?;
+    Ok(())
+}
+
+fn commit(msg: &str) -> Result<()> {
+    ensure_repo_exists()?;
+
+    let idx = load_index()?;
+    if idx.is_empty() {
+        bail!("noting staged to commit")
+    }
+
+    let tree_hash = build_tree(&idx)?;
+    let parent = read_head()?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs() as i64;
+
+    let commit_content = format!(
+        "tree {}\nparent {}\nauthor drax <drax@local>\ntimestamp {}\n\n{}\n",
+        tree_hash,
+        parent.as_deref().unwrap_or(""),
+        timestamp,
+        msg
+    );
+
+    let commit_hash = write_object(commit_content.as_bytes())?;
+    write_head(&commit_hash)?;
+
+    println!("committed {} {}", &commit_hash[..12], msg);
     Ok(())
 }

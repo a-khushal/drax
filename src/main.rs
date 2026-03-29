@@ -25,6 +25,7 @@ enum Commands {
     Init,
     Add { file: String },
     Commit { msg: String },
+    Log,
 }
 
 fn main() -> Result<()> {
@@ -33,6 +34,7 @@ fn main() -> Result<()> {
         Commands::Init => init_repo()?,
         Commands::Add { file } => add_file(&file)?,
         Commands::Commit { msg } => commit(&msg)?,
+        Commands::Log => log_history()?,
     }
 
     Ok(())
@@ -273,5 +275,66 @@ fn commit(msg: &str) -> Result<()> {
     write_head(&commit_hash)?;
 
     println!("committed {} {}", &commit_hash[..12], msg);
+    Ok(())
+}
+
+struct CommitView {
+    parent: Option<String>,
+    timestamp: i64,
+    message: String,
+}
+
+fn parse_commit(bytes: &[u8], hash: &str) -> Result<CommitView> {
+    let text = std::str::from_utf8(bytes)
+        .with_context(|| format!("commit object is not utf8: {hash}"))?;
+    let (headers, message_block) = text.split_once("\n\n").unwrap_or((text, ""));
+    let mut parent: Option<String> = None;
+    let mut timestamp: Option<i64> = None;
+    for line in headers.lines() {
+        if let Some(v) = line.strip_prefix("parent ") {
+            let v = v.trim();
+            if !v.is_empty() {
+                parent = Some(v.to_string());
+            }
+        } else if let Some(v) = line.strip_prefix("timestamp ") {
+            timestamp = Some(
+                v.trim()
+                    .parse::<i64>()
+                    .with_context(|| format!("invalid timestamp in commit {hash}"))?,
+            );
+        }
+    }
+    let timestamp = timestamp.with_context(|| format!("missing timestamp in commit {hash}"))?;
+    let message = message_block.trim_end().to_string();
+    Ok(CommitView {
+        parent,
+        timestamp,
+        message,
+    })
+}
+
+fn log_history() -> Result<()> {
+    ensure_repo_exists()?;
+
+    let mut curr = read_head()?;
+
+    if curr.is_none() {
+        println!("no commits yet");
+        return Ok(());
+    }
+
+    while let Some(hash) = curr {
+        let bytes = read_object(&hash)?;
+        let commit = parse_commit(&bytes, &hash)?;
+
+        println!("commit {}", hash);
+        println!("timestamp {}", commit.timestamp);
+        println!();
+        println!("{}", commit.message);
+        println!();
+
+        curr = commit.parent;
+    }
+
     Ok(())
 }
